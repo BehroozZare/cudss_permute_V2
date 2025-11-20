@@ -3,16 +3,19 @@ cmake_minimum_required(VERSION 3.19 FATAL_ERROR)
 
 set(exec_name "test_cudss")
 
-#GLOB source files 
-file(GLOB_RECURSE src_files main.cu util.h matrix_market_reader.h residual.h metis_permute.h)#<TODO> change this to add your files 
+# Source files common to both executables
+set(common_sources util.h matrix_market_reader.h residual.h metis_permute.h)
 
-#Executable
-add_executable(${exec_name} ${src_files})
-
-#Libs linked to the executable
-target_link_libraries( ${exec_name}   	
+# Generate executable
+add_executable(generate generate.cu ${common_sources})
+target_link_libraries(generate
 	$<BUILD_INTERFACE:developer_flags>
-	metis	
+	metis
 )
 
-#gtest_discover_tests(${exec_name})
+# Reuse executable
+add_executable(reuse reuse.cu ${common_sources})
+target_link_libraries(reuse
+	$<BUILD_INTERFACE:developer_flags>
+	metis
+)
