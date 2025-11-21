@@ -11,6 +11,36 @@
 #include <unsupported/Eigen/SparseExtra>
 
 
+
+void assemble_perm(std::vector<int>& etree_map, PARTH::ParthAPI& parth, std::vector<int>& perm) {
+    perm.clear();
+    perm.resize(parth.M_n, -1);
+    std::vector<int> etree_inverse(etree_map.size(), 0);
+    for(int i = 0; i < etree_map.size(); i++){
+        etree_inverse[etree_map[i]] = i;
+    }
+
+    int offset = 0;
+    for(int i = 0; i < etree_inverse.size(); i++){
+        int etree_id = etree_inverse[i];
+        auto& node = parth.hmd.HMD_tree[etree_id];
+        if (node.DOFs.empty())
+            continue;
+        for (int local_node = 0; local_node < node.DOFs.size(); local_node++) {
+            int global_node = node.DOFs[local_node];
+            int perm_index  = node.permuted_new_label[local_node] + offset;
+            assert(global_node >= 0 && global_node < parth.M_n &&
+                    "Invalid global node index");
+            assert(perm_index >= 0 && perm_index < perm.size() &&
+                    "Permutation index out of bounds");
+            assert(perm[perm_index] == -1 &&
+                    "Permutation slot already filled - duplicate node!");
+            perm[perm_index] = global_node;
+        }
+        offset += node.DOFs.size();
+    }
+}
+
 void get_cudss_mapping(int size, int max_level, std::vector<int>& cudss_mapping) {
 
     auto get_level = [&](int index) -> int {
@@ -128,6 +158,16 @@ bool test_etree_correctness(const std::vector<int>& etree, const std::vector<int
     return true;
 }
 
+
+bool test_perm_correctness(const std::vector<int>& perm) {
+    for(int i = 0; i < perm.size(); i++){
+        if(perm[i] == -1){
+            return false;
+        }
+    }
+    return true;
+}
+
 int main(int argc, char *argv[]) {
     CLI::App app{"Parth Integration Example"};
 
@@ -187,29 +227,41 @@ int main(int argc, char *argv[]) {
 
     //Apply CUDSS mapping
     std::vector<int> cudss_mapping(parth.hmd.HMD_tree.size(), 0);
+    std::vector<int> cudss_perm(parth.M_n, -1);
     get_cudss_mapping(parth.hmd.HMD_tree.size(), parth.getNDLevels(), cudss_mapping);
     apply_mapping(cudss_mapping, parth, etree);
+    assemble_perm(cudss_mapping, parth, cudss_perm);
+    
     save_elimination_tree(etree, output_dir + "/elim_tree_cudss.txt");
-    if(!test_etree_correctness(etree, perm)){
+    save_permutation(cudss_perm, output_dir + "/perm_cudss.txt");
+
+    if(!test_etree_correctness(etree, cudss_perm)){
         std::cerr << "CUDSS mapping is incorrect" << std::endl;
         return 1;
     }
 
     //Apply post order mapping
     std::vector<int> post_order_mapping(parth.hmd.HMD_tree.size(), 0);
+    std::vector<int> post_order_perm(parth.M_n, -1);
     get_post_order_mapping(parth.hmd.HMD_tree.size(), post_order_mapping);
     apply_mapping(post_order_mapping, parth, etree);
+    assemble_perm(post_order_mapping, parth, post_order_perm);
+    assert(post_order_perm == perm);
     save_elimination_tree(etree, output_dir + "/elim_tree_post_order.txt");
-    if(!test_etree_correctness(etree, perm)){
+    save_permutation(post_order_perm, output_dir + "/perm_post_order.txt");
+    if(!test_etree_correctness(etree, post_order_perm)){
         std::cerr << "Post order mapping is incorrect" << std::endl;
         return 1;
     }
     //Apply reverse mapping
     std::vector<int> reverse_mapping(parth.hmd.HMD_tree.size(), 0);
+    std::vector<int> reverse_perm(parth.M_n, -1);
     get_reverse_mapping(parth.hmd.HMD_tree.size(), reverse_mapping);
     apply_mapping(reverse_mapping, parth, etree);
+    assemble_perm(reverse_mapping, parth, reverse_perm);
     save_elimination_tree(etree, output_dir + "/elim_tree_reverse.txt");
-    if(!test_etree_correctness(etree, perm)){
+    save_permutation(reverse_perm, output_dir + "/perm_reverse.txt");
+    if(!test_etree_correctness(etree, reverse_perm)){
         std::cerr << "Reverse mapping is incorrect" << std::endl;
         return 1;
     }
