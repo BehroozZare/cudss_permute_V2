@@ -19,3 +19,12 @@ target_link_libraries(reuse
 	$<BUILD_INTERFACE:developer_flags>
 	metis
 )
+
+# Generate with Parth executable
+add_executable(generate_with_parth generate_with_parth.cu)
+target_link_libraries(generate_with_parth
+    $<BUILD_INTERFACE:developer_flags>
+    parth
+    Eigen3::Eigen
+    CLI11::CLI11
+)

@@ -57,11 +57,13 @@ int* read_int_array(const char* filename, int& out_size)
 
 int main(int argc, char** argv)
 {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <matrix_file>\n", argv[0]);
+    if (argc < 4) {
+        fprintf(stderr, "Usage: %s <matrix_file> <perm_file> <elim_tree_file>\n", argv[0]);
         return EXIT_FAILURE;
     }
     const char* matrix_filename = argv[1];
+    const char* perm_path = argv[2];
+    const char* tree_path = argv[3];
 
     cudssMatrixViewType_t mview = CUDSS_MVIEW_FULL;
 
@@ -147,9 +149,7 @@ int main(int argc, char** argv)
     // -------------------------------------------------------------------------
     printf("\nLoading permutation and elimination tree from files...\n");
 
-    // NOTE: paths as per your generate.cu setup
-    const char* perm_path = "/home/behrooz/Desktop/Last_Project/cudss_permute/output/perm.txt";
-    const char* tree_path = "/home/behrooz/Desktop/Last_Project/cudss_permute/output/elim_tree.txt";
+    // NOTE: paths passed as arguments
 
     int perm_size   = 0;
     int elim_size   = 0;

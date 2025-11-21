@@ -22,29 +22,64 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
 # Auto-detect GPU architecture
 include("cmake/AutoDetectCudaArch.cmake")
 include("cmake/metis.cmake")
+include("cmake/eigen.cmake")
+include("cmake/cli11.cmake")
+include("cmake/parth.cmake")
 
 # CUDA and C++ compiler flags
-set(cxx_flags 
-	$<$<CXX_COMPILER_ID:MSVC>:-D_SCL_SECURE_NO_WARNINGS /openmp /std:c++17> #<TODO> Add MSVC-specific compiler flags here
-	$<$<CXX_COMPILER_ID:GNU>:-Wall -m64 -fopenmp -O3 -std=c++17>            #<TODO> Add GCC compiler flags here
-	$<$<CXX_COMPILER_ID:Clang>:-Wall -m64 -fopenmp -O3 -std=c++17>          #<TODO> Add Clang compiler flags here
-	)
+# C++ compiler flags (config-aware)
+set(cxx_flags
+		# MSVC
+		$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:
+		/openmp /std:c++17 /Zi /Od>
+		$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<NOT:$<CONFIG:Debug>>>:
+		/openmp /std:c++17>  # add /O2 here if you want
+
+		# GCC
+		$<$<AND:$<CXX_COMPILER_ID:GNU>,$<CONFIG:Debug>>:
+		-Wall -m64 -fopenmp -std=c++17 -O0 -g3>
+		$<$<AND:$<CXX_COMPILER_ID:GNU>,$<NOT:$<CONFIG:Debug>>>:
+		-Wall -m64 -fopenmp -std=c++17 -O3>
+
+		# Clang
+		$<$<AND:$<CXX_COMPILER_ID:Clang>,$<CONFIG:Debug>>:
+		-Wall -m64 -fopenmp -std=c++17 -O0 -g3>
+		$<$<AND:$<CXX_COMPILER_ID:Clang>,$<NOT:$<CONFIG:Debug>>>:
+		-Wall -m64 -fopenmp -std=c++17 -O3>
+)
 
 set(MSVC_XCOMPILER_FLAGS "/openmp /std:c++17")
+
+# CUDA compiler flags (config-aware)
 set(cuda_flags
-    $<$<CXX_COMPILER_ID:GNU>:-Xcompiler -Wall -fopenmp -O3>
-	$<$<CXX_COMPILER_ID:Clang>:-Xcompiler -Wall -fopenmp -O3>
-	$<$<CXX_COMPILER_ID:MSVC>:-Xcompiler ${MSVC_XCOMPILER_FLAGS}>
-    -Xcudafe=--display_error_number    
-	-lineinfo	
-	--expt-extended-lambda	
-	-use_fast_math		
-    $<$<CXX_COMPILER_ID:GNU>:-O3>	
-	--expt-relaxed-constexpr	
-    -Xptxas -warn-spills -res-usage   
-	--ptxas-options=-v	
-    #-G	
+		# Host compiler side for CUDA
+		$<$<AND:$<CXX_COMPILER_ID:GNU>,$<CONFIG:Debug>>:
+		-Xcompiler -Wall -fopenmp -O0 -g>
+		$<$<AND:$<CXX_COMPILER_ID:GNU>,$<NOT:$<CONFIG:Debug>>>:
+		-Xcompiler -Wall -fopenmp -O3>
+
+		$<$<AND:$<CXX_COMPILER_ID:Clang>,$<CONFIG:Debug>>:
+		-Xcompiler -Wall -fopenmp -O0 -g>
+		$<$<AND:$<CXX_COMPILER_ID:Clang>,$<NOT:$<CONFIG:Debug>>>:
+		-Xcompiler -Wall -fopenmp -O3>
+
+		$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:
+		-Xcompiler ${MSVC_XCOMPILER_FLAGS} /Zi /Od>
+		$<$<AND:$<CXX_COMPILER_ID:MSVC>,$<NOT:$<CONFIG:Debug>>>:
+		-Xcompiler ${MSVC_XCOMPILER_FLAGS}>
+
+		# Common CUDA flags
+		-Xcudafe=--display_error_number
+		--expt-extended-lambda
+		--expt-relaxed-constexpr
+		-Xptxas -warn-spills -res-usage
+		--ptxas-options=-v
+
+		# Per-config CUDA behavior
+		$<$<CONFIG:Debug>:-G -lineinfo>              # full device debug, no heavy opt
+		$<$<NOT:$<CONFIG:Debug>>:-lineinfo --use_fast_math> # fast math only outside Debug
 )
+
 add_library(developer_flags INTERFACE)
 target_compile_options(developer_flags INTERFACE
     $<$<COMPILE_LANGUAGE:CXX>:${cxx_flags}>
