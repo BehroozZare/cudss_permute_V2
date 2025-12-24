@@ -16,19 +16,25 @@ namespace fs = std::filesystem;
 #include "residual.h"
 #include "util.h"
 #include "csv_utils.h"
+<<<<<<< HEAD
 
 #define CUDA_SYNC_CHECK() do {                               \
     CUDA_ERROR(cudaGetLastError());                            \
     CUDA_ERROR(cudaDeviceSynchronize());                       \
   } while(0)
+=======
+>>>>>>> 54bb69b6a793ea3f87cc47c0bbad3e5c0347a29a
 
 
 int main(int argc, char** argv)
 {
+<<<<<<< HEAD
     cudaDeviceProp p{};
     cudaGetDeviceProperties(&p, 0);
     printf("GPU: %s, cc=%d.%d\n", p.name, p.major, p.minor);
 
+=======
+>>>>>>> 54bb69b6a793ea3f87cc47c0bbad3e5c0347a29a
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <matrix_file> [permute_type] [output_csv]\n", argv[0]);
         return EXIT_FAILURE;
@@ -249,9 +255,14 @@ int main(int argc, char** argv)
     timer.stop();
     ordering_time = timer.elapsed_millis();
     printf("\n cuDSS Permutation took: %f (ms)", ordering_time);
+<<<<<<< HEAD
     CUDA_SYNC_CHECK();
     total_time += ordering_time;
     check_cudss_info("Reordering");
+=======
+    total_time += ordering_time;
+
+>>>>>>> 54bb69b6a793ea3f87cc47c0bbad3e5c0347a29a
     // Symbolic factorization
     timer.start();
     CUDSS_ERROR(cudssExecute(handle,
@@ -264,9 +275,15 @@ int main(int argc, char** argv)
     CUDA_SYNC_CHECK();
     timer.stop();
     analysis_time = timer.elapsed_millis();
+<<<<<<< HEAD
     check_cudss_info("Symbolic factorization");
     printf("\n cuDSS Symbolic factorization took: %f (ms)", analysis_time);
     total_time += analysis_time;
+=======
+    printf("\n cuDSS Symbolic factorization took: %f (ms)", analysis_time);
+    total_time += analysis_time;
+
+>>>>>>> 54bb69b6a793ea3f87cc47c0bbad3e5c0347a29a
     //Saving the permutation and Elimination tree
     {
         size_t size_bytes = 0;
@@ -314,7 +331,10 @@ int main(int argc, char** argv)
     CUDA_SYNC_CHECK();
     timer.stop();
     factorization_time = timer.elapsed_millis();
+<<<<<<< HEAD
     check_cudss_info("Factorization");
+=======
+>>>>>>> 54bb69b6a793ea3f87cc47c0bbad3e5c0347a29a
     printf("\n cuDSS Factorization took: %f (ms)", factorization_time);
     total_time += factorization_time;
 
@@ -326,7 +346,10 @@ int main(int argc, char** argv)
     CUDA_SYNC_CHECK();
     timer.stop();
     solve_time = timer.elapsed_millis();
+<<<<<<< HEAD
     check_cudss_info("Solving");
+=======
+>>>>>>> 54bb69b6a793ea3f87cc47c0bbad3e5c0347a29a
     printf("\n cuDSS Solving took: %f (ms)", solve_time);
     total_time += solve_time;
 
