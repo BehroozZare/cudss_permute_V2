@@ -118,7 +118,10 @@ int matrix_reader(std::string           filename,
         else {
             int        i, j;
             value_type val;
-            lineData >> i >> j >> val;
+            if (!(lineData >> i >> j >> val)) {
+                // Skip malformed lines (couldn't parse i, j, val)
+                continue;
+            }
             // Convert from 1-based to 0-based
             i -= 1;
             j -= 1;

@@ -20,6 +20,13 @@ target_link_libraries(reuse
 	metis
 )
 
+# Benchmark executable
+add_executable(benchmark benchmark.cu ${common_sources})
+target_link_libraries(benchmark
+	$<BUILD_INTERFACE:developer_flags>
+	metis
+)
+
 # Generate with Parth executable
 add_executable(generate_with_parth generate_with_parth.cu)
 target_link_libraries(generate_with_parth

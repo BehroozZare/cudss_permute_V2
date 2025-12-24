@@ -95,9 +95,31 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(developer_flags INTERFACE OpenMP::OpenMP_CXX)
 endif()
 
-#cudss
-find_package(cudss)
-message(STATUS "Found cuDSS version ${cudss_VERSION}")	
+#cudss - Auto-detect correct version based on CUDA toolkit
+# Extract major version from CUDA compiler (e.g., 12.8.61 -> 12)
+string(REGEX MATCH "^[0-9]+" CUDA_VERSION_MAJOR "${CMAKE_CUDA_COMPILER_VERSION}")
+message(STATUS "Detected CUDA toolkit version: ${CMAKE_CUDA_COMPILER_VERSION} (major: ${CUDA_VERSION_MAJOR})")
+
+# Try to find cuDSS in version-specific path (Linux)
+if(NOT WIN32 AND NOT cudss_DIR)
+    # Standard Linux installation paths for cuDSS
+    set(_cudss_search_paths
+        "/usr/lib/x86_64-linux-gnu/libcudss/${CUDA_VERSION_MAJOR}/cmake/cudss"
+        "/usr/lib/aarch64-linux-gnu/libcudss/${CUDA_VERSION_MAJOR}/cmake/cudss"
+        "/usr/local/cuda-${CUDA_VERSION_MAJOR}/lib64/cmake/cudss"
+    )
+    foreach(_path ${_cudss_search_paths})
+        if(EXISTS "${_path}/cudss-config.cmake")
+            set(cudss_DIR "${_path}" CACHE PATH "Path to cuDSS CMake config" FORCE)
+            message(STATUS "Auto-detected cuDSS for CUDA ${CUDA_VERSION_MAJOR} at: ${cudss_DIR}")
+            break()
+        endif()
+    endforeach()
+    unset(_cudss_search_paths)
+endif()
+
+find_package(cudss REQUIRED)
+message(STATUS "Found cuDSS version ${cudss_VERSION} (Library: ${cudss_LIBRARY_DIR})")	
 target_link_directories(developer_flags INTERFACE ${cudss_LIBRARY_DIR})
 
 if (WIN32)

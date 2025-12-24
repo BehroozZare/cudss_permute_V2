@@ -3,6 +3,11 @@
 #include <stdio.h>
 #include <algorithm>
 #include <cctype>
+#include <string>
+#include <vector>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 #include <cudss.h>
 
@@ -10,14 +15,29 @@
 #include "metis_permute.h"
 #include "residual.h"
 #include "util.h"
+#include "csv_utils.h"
+
+#define CUDA_SYNC_CHECK() do {                               \
+    CUDA_ERROR(cudaGetLastError());                            \
+    CUDA_ERROR(cudaDeviceSynchronize());                       \
+  } while(0)
 
 
 int main(int argc, char** argv)
 {
+    cudaDeviceProp p{};
+    cudaGetDeviceProperties(&p, 0);
+    printf("GPU: %s, cc=%d.%d\n", p.name, p.major, p.minor);
+
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <matrix_file> [permute_type] [output_csv]\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
     const char* matrix_filename = argv[1];
 
     std::string permute_type = "default";
-    if (argc == 3) {
+    if (argc >= 3) {
         permute_type = argv[2];
         std::transform(permute_type.begin(),
                        permute_type.end(),
@@ -25,9 +45,18 @@ int main(int argc, char** argv)
                        [](unsigned char c) { return std::tolower(c); });
     }
 
+    std::string output_csv = "output";
+    if (argc >= 4) {
+        output_csv = argv[3];
+    }
+
 
     cudssMatrixViewType_t mview = CUDSS_MVIEW_FULL;
 
+    float ordering_time = 0.0f;
+    float analysis_time = 0.0f;
+    float factorization_time = 0.0f;
+    float solve_time = 0.0f;
 
     int n;
     int nnz;
@@ -99,6 +128,7 @@ int main(int argc, char** argv)
         b_values_d, b_values_h, n * sizeof(double), cudaMemcpyHostToDevice));
 
 
+    fprintf(stderr, "Created cuDSS library handle\n");
     // Creating the cuDSS library handle
     cudssHandle_t handle;
     CUDSS_ERROR(cudssCreate(&handle));
@@ -194,18 +224,35 @@ int main(int argc, char** argv)
 
     float total_time = 0;
 
+
+    auto check_cudss_info = [&](const char* tag) {
+        int info = 0;
+        size_t written = 0;
+      
+        // Many cuDSS samples treat INFO as an int status/index.
+        // If this fails or size differs on your version, switch to the size-query method.
+        cudssStatus_t st = cudssDataGet(handle, solverData,
+                                       CUDSS_DATA_INFO,
+                                       &info, sizeof(info), &written);
+        if (st == CUDSS_STATUS_SUCCESS && written == sizeof(info) && info != 0) {
+          fprintf(stderr, "\n[cudss] %s: CUDSS_DATA_INFO=%d\n", tag, info);
+        }
+      };
+
+
     // Permutation
-    cudaDeviceSynchronize();
+    CUDA_SYNC_CHECK();
     timer.start();
     CUDSS_ERROR(cudssExecute(
         handle, CUDSS_PHASE_REORDERING, solverConfig, solverData, A, x, b));
-    cudaDeviceSynchronize();
+    CUDA_SYNC_CHECK();
     timer.stop();
-    printf("\n cuDSS Permutation took: %f (ms)", timer.elapsed_millis());
-    total_time += timer.elapsed_millis();
-
+    ordering_time = timer.elapsed_millis();
+    printf("\n cuDSS Permutation took: %f (ms)", ordering_time);
+    CUDA_SYNC_CHECK();
+    total_time += ordering_time;
+    check_cudss_info("Reordering");
     // Symbolic factorization
-    cudaDeviceSynchronize();
     timer.start();
     CUDSS_ERROR(cudssExecute(handle,
                              CUDSS_PHASE_SYMBOLIC_FACTORIZATION,
@@ -214,11 +261,12 @@ int main(int argc, char** argv)
                              A,
                              x,
                              b));
-    cudaDeviceSynchronize();
+    CUDA_SYNC_CHECK();
     timer.stop();
-    printf("\n cuDSS Symbolic factorization took: %f (ms)", timer.elapsed_millis());
-    total_time += timer.elapsed_millis();
-
+    analysis_time = timer.elapsed_millis();
+    check_cudss_info("Symbolic factorization");
+    printf("\n cuDSS Symbolic factorization took: %f (ms)", analysis_time);
+    total_time += analysis_time;
     //Saving the permutation and Elimination tree
     {
         size_t size_bytes = 0;
@@ -259,24 +307,28 @@ int main(int argc, char** argv)
         }
     }
     // Factorization
-    cudaDeviceSynchronize();
+    CUDA_SYNC_CHECK();
     timer.start();
     CUDSS_ERROR(cudssExecute(
         handle, CUDSS_PHASE_FACTORIZATION, solverConfig, solverData, A, x, b));
-    cudaDeviceSynchronize();
+    CUDA_SYNC_CHECK();
     timer.stop();
-    printf("\n cuDSS Factorization took: %f (ms)", timer.elapsed_millis());
-    total_time += timer.elapsed_millis();
+    factorization_time = timer.elapsed_millis();
+    check_cudss_info("Factorization");
+    printf("\n cuDSS Factorization took: %f (ms)", factorization_time);
+    total_time += factorization_time;
 
     // Solving
-    cudaDeviceSynchronize();
+    CUDA_SYNC_CHECK();
     timer.start();
     CUDSS_ERROR(cudssExecute(
         handle, CUDSS_PHASE_SOLVE, solverConfig, solverData, A, x, b));
-    cudaDeviceSynchronize();
+    CUDA_SYNC_CHECK();
     timer.stop();
-    printf("\n cuDSS Solving took: %f (ms)", timer.elapsed_millis());
-    total_time += timer.elapsed_millis();
+    solve_time = timer.elapsed_millis();
+    check_cudss_info("Solving");
+    printf("\n cuDSS Solving took: %f (ms)", solve_time);
+    total_time += solve_time;
 
     printf("\n\ncuDSS Total time: %f (ms)", total_time);
 
@@ -293,6 +345,41 @@ int main(int argc, char** argv)
                                                 mview);
 
     printf("\nResidual L2 norm ||Ax - b|| = %e\n", residual);
+
+    // Save to CSV
+    {
+        // Extract mesh name from path
+        fs::path mesh_file(matrix_filename);
+        std::string mesh_name = mesh_file.stem().string();
+
+        // Create CSV with same headers as benchmark.cu
+        std::vector<std::string> header;
+        header.emplace_back("mesh_name");
+        header.emplace_back("ordering_type");
+        header.emplace_back("nd_levels");
+        header.emplace_back("patch_type");
+        header.emplace_back("patch_size");
+        header.emplace_back("ordering_time");
+        header.emplace_back("analysis_time");
+        header.emplace_back("factorization_time");
+        header.emplace_back("solve_time");
+        header.emplace_back("total_time");
+        header.emplace_back("residual");
+
+        CSVManager runtime_csv(output_csv, "some address", header, false);
+        runtime_csv.addElementToRecord(mesh_name, "mesh_name");
+        runtime_csv.addElementToRecord(permute_type, "ordering_type");
+        runtime_csv.addElementToRecord(10, "nd_levels");
+        runtime_csv.addElementToRecord(-1, "patch_type");
+        runtime_csv.addElementToRecord(-1, "patch_size");
+        runtime_csv.addElementToRecord(ordering_time, "ordering_time");
+        runtime_csv.addElementToRecord(analysis_time, "analysis_time");
+        runtime_csv.addElementToRecord(factorization_time, "factorization_time");
+        runtime_csv.addElementToRecord(solve_time, "solve_time");
+        runtime_csv.addElementToRecord(total_time, "total_time");
+        runtime_csv.addElementToRecord(residual, "residual");
+        runtime_csv.addRecord();
+    }
 
     // free memory
     /* Destroying opaque objects, matrix wrappers and the cuDSS library handle
